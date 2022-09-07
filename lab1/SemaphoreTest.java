@@ -36,7 +36,7 @@
  * input.]
  */
 
-public class SemaphoreExample {
+public class SemaphoreTest {
     
     public static void main(String[] args) {
         ProducerConsumer pc = new ProducerConsumer(100);

@@ -36,7 +36,7 @@
  * input.]
  */
 
-public class FourthExercise {
+public class PCExercise {
     
     public static void main(String[] args) {
         ProducerConsumer pc = new ProducerConsumer(1000);

@@ -11,7 +11,7 @@
  * 
  */
 
-class FirstExercise implements Runnable {
+class SimpleThreading implements Runnable {
 
     public synchronized void run() {
         for (int i = 0; i < 5; i += 1) {
@@ -21,7 +21,7 @@ class FirstExercise implements Runnable {
 
     public static void main(String[] args) {
         for (int i = 0; i < 5; i += 1) {
-            (new Thread(new FirstExercise())).start(); 
+            (new Thread(new SimpleThreading())).start(); 
         }
     }
 
