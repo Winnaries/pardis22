@@ -92,13 +92,14 @@ class MergeSortES {
             tasks.add(new MergeSortTask(array, left[depth][i], right[depth][i]));
         }
 
+        List<Future<Boolean>> futures = null;
+
         try {
+            futures = pool.invokeAll(tasks);
+
             // MERGE RESULTS
             for (int i = depth - 1; i >= 0; i -= 1) {
-                List<Future<Boolean>> futures = pool.invokeAll(tasks);
-
-                // SCHEDULE NEXT TASKS 
-                // WHILE WAITING
+                // SCHEDULE NEXT TASKS
                 tasks.clear();
                 for (int j = 0; j < left[i].length; j += 1) {
                     tasks.add(new MergeSortTask(array, left[i][j], right[i][j], true));
@@ -106,11 +107,16 @@ class MergeSortES {
 
                 // WAIT FOR PREVIOUS EXEC
                 for (Future<Boolean> f : futures) f.get(); 
+
+                // RUN NEXT TASKS
+                futures = pool.invokeAll(tasks);
+            }
+            
+            // MERGE LAST RESULTS
+            if (futures != null) {
+                for (Future<Boolean> f : futures) f.get();
             }
         } catch (Exception e) {}
-
-        // MERGE LAST RESULTS
-        MergeSort.merge(array, 0, (n - 1) / 2, n - 1);
 
         // STOP TIMER
         System.out.printf("Total %d ms elapsed\n", (System.nanoTime() - start) / 1000000);
