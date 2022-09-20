@@ -1,7 +1,5 @@
 package lab2;
 
-// อย่าลืมช้าจ ipad eye ไอควาย
-
 import java.util.List; 
 import java.util.ArrayList; 
 import java.util.concurrent.Future;
