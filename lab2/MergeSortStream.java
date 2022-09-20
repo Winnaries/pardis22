@@ -1,6 +1,7 @@
 package lab2; 
 
 import java.util.Arrays;
+import java.util.concurrent.ForkJoinPool;
 import java.util.ArrayList;
 import java.util.stream.Stream; 
 
@@ -67,26 +68,33 @@ class MergeSortStream {
     public static void main(String[] args) {
         // GENERATE SHUFFLED INTEGER ARRAY
         int nItems = Integer.parseInt(args[0]); 
+        int nThreads = Integer.parseInt(args[1]); 
         Integer[] array = MergeSortUtils.generate(nItems); 
+        ForkJoinPool pool = new ForkJoinPool(nThreads); 
 
-        // CREATE PARALLEL STREAM
-        Stream<Integer> stream = Arrays.stream(array).parallel(); 
-
-        // START TIMER
-        long start = System.nanoTime();
-
-        // RUN MERGE SORT IN PARALLEL
-        MergeSortCollector msCollect = stream.collect(
-            MergeSortCollector::new, 
-            MergeSortCollector::accept, 
-            MergeSortCollector::combine
-        );
-
-        // STOP TIMER
-        System.out.printf("Total %d ms elapsed\n", (System.nanoTime() - start) / 1000000);
-
-        // CORRECTNESS TEST
-        System.exit(MergeSortUtils.test(msCollect.sorted()) ? 0 : 1);
+        try {
+            // CUSTOM THREAD POOL TRICK WITH FJP
+            pool.submit(() -> {
+                // CREATE PARALLEL STREAM
+                Stream<Integer> stream = Arrays.stream(array).parallel(); 
+        
+                // START TIMER
+                long start = System.nanoTime();
+        
+                // RUN MERGE SORT IN PARALLEL
+                MergeSortCollector msCollect = stream.collect(
+                    MergeSortCollector::new, 
+                    MergeSortCollector::accept, 
+                    MergeSortCollector::combine
+                );
+        
+                // STOP TIMER
+                System.out.printf("Total %d ms elapsed\n", (System.nanoTime() - start) / 1000000);
+                
+                // CORRECTNESS TEST
+                System.exit(MergeSortUtils.test(msCollect.sorted()) ? 0 : 1);
+            }).get();
+        } catch (Exception e) {}
     }
 
 }
