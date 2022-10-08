@@ -3,6 +3,7 @@ package lab2;
 import java.util.Arrays;
 import java.util.concurrent.ForkJoinPool;
 import java.util.ArrayList;
+import java.util.List; 
 import java.util.stream.Stream; 
 
 class MergeSortCollector {
@@ -66,28 +67,31 @@ class MergeSortCollector {
 class MergeSortStream {
 
     public static void main(String[] args) {
+        System.out.println("Cores: " + Runtime.getRuntime().availableProcessors());
+
         // GENERATE SHUFFLED INTEGER ARRAY
         int nItems = Integer.parseInt(args[0]); 
         int nThreads = Integer.parseInt(args[1]); 
         Integer[] array = MergeSortUtils.generate(nItems); 
         ForkJoinPool pool = new ForkJoinPool(nThreads); 
+        List<Integer> list = Arrays.asList(array);
 
         try {
             // CUSTOM THREAD POOL TRICK WITH FJP
             pool.submit(() -> {
                 // CREATE PARALLEL STREAM
-                Stream<Integer> stream = Arrays.stream(array).parallel(); 
-        
+                Stream<Integer> stream = list.parallelStream(); 
+
                 // START TIMER
                 long start = System.nanoTime();
-        
+
                 // RUN MERGE SORT IN PARALLEL
                 MergeSortCollector msCollect = stream.collect(
                     MergeSortCollector::new, 
                     MergeSortCollector::accept, 
                     MergeSortCollector::combine
                 );
-        
+
                 // STOP TIMER
                 System.out.printf("Total %d ms elapsed\n", (System.nanoTime() - start) / 1000000);
                 

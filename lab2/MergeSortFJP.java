@@ -7,7 +7,7 @@ class ForkMergeSort extends RecursiveAction {
     int l, m, r; 
     Integer[] array; 
 
-    private static final int THESHOLD = 8; 
+    private static final int THESHOLD = 100; 
 
     public ForkMergeSort(Integer[] array, int l, int r) {
         this.array = array; 
