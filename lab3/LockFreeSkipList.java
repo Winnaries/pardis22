@@ -12,21 +12,34 @@ public final class LockFreeSkipList<T> {
 	private final Node<T> head = new Node<T>(Integer.MIN_VALUE);
 	private final Node<T> tail = new Node<T>(Integer.MAX_VALUE);
 
+	public LockFreeSkipListRecordBook book;
+
 	public LockFreeSkipList() {
 		for (int i = 0; i < head.next.length; i++) {
 			head.next[i] = new AtomicMarkableReference<LockFreeSkipList.Node<T>>(tail, false);
 		}
 	}
 
+	public boolean recordOpsGlobally(LockFreeSkipListRecordBook book) {
+		if (this.book != null)
+			return false;
+		this.book = book;
+		return true;
+	}
+
 	private static final class Node<T> {
-		final T value;
+		// key of this node, ordered
 		final int key;
+
+		// next node of each level. 
 		final AtomicMarkableReference<Node<T>>[] next;
+
+		// top level of this node, not the skiplist. 
 		private final int topLevel;
 
+		// just create a new node, and chosen level of references
 		@SuppressWarnings("unchecked")
 		public Node(int key) {
-			value = null;
 			this.key = key;
 			next = (AtomicMarkableReference<Node<T>>[]) new AtomicMarkableReference[MAX_LEVEL + 1];
 			for (int i = 0; i < next.length; i++) {
@@ -35,9 +48,10 @@ public final class LockFreeSkipList<T> {
 			topLevel = MAX_LEVEL;
 		}
 
+		// similar to the previous one, but height specified 
 		@SuppressWarnings("unchecked")
 		public Node(T x, int height) {
-			value = x;
+			// value = x;
 			key = x.hashCode();
 			next = (AtomicMarkableReference<Node<T>>[]) new AtomicMarkableReference[height + 1];
 			for (int i = 0; i < next.length; i++) {
@@ -73,7 +87,7 @@ public final class LockFreeSkipList<T> {
 			if (found) {
 				return false;
 			} else {
-				Node<T> newNode = new Node(x, topLevel);
+				Node<T> newNode = new Node<T>(x, topLevel);
 				for (int level = bottomLevel; level <= topLevel; level++) {
 					Node<T> succ = succs[level];
 					newNode.next[level].set(succ, false);
