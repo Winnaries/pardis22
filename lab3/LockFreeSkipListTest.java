@@ -8,7 +8,15 @@ import java.util.concurrent.Future;
 
 public class LockFreeSkipListTest {
 
-    static final double[] CUMULATIVE_PROB = { 0f, 0.5, 1.0 };
+    static final int MIN = 0;
+    static final int MAX = 10000;
+    static final int LENGTH = 10000;
+
+    // static final int MIN = 0;
+    // static final int MAX = 10_000_000;
+    // static final int LENGTH = 10_000_000;
+
+    static final double[] CUMULATIVE_PROB = { 0.0, 0.5, 1.0 };
 
     static class Task implements Callable<Boolean> {
         int id;
@@ -71,15 +79,19 @@ public class LockFreeSkipListTest {
 
         // create the data structure
         Random rng = new Random(seed);
+        LockFreeSkipListRecordBook<Integer> book = new LockFreeSkipListRecordBook<Integer>();
         LockFreeSkipList<Integer> skiplist = new LockFreeSkipList<Integer>();
+
+        // tell the skiplist to record ops history
+        skiplist.recordOps(book);
 
         // pre-populate the skiplist
         Population prefill = isUniform
-                ? new UniformPopulation(seed * 2, 0, 10_000_000)
-                : new NormalPopulation(seed * 2, 0, 10_000_000, 0f, 1f);
+                ? new UniformPopulation(seed * 2, MIN, MAX)
+                : new NormalPopulation(seed * 2, MIN, MAX, 0f, 1f);
 
         int success = 0;
-        for (int i = 0; i < 10_000_000; i += 1) {
+        for (int i = 0; i < LENGTH; i += 1) {
             if (skiplist.add(prefill.getSample()))
                 success++;
         }
@@ -106,37 +118,148 @@ public class LockFreeSkipListTest {
 
         try {
             // perform parallely
-            futures = pool.invokeAll(tasks.subList(0, nthreads - 1));
-            tasks.get(nthreads - 1).call(); 
+            futures = pool.invokeAll(tasks);
+            // futures = pool.invokeAll(tasks.subList(0, nthreads - 1));
+            // tasks.get(nthreads - 1).call();
             for (Future<Boolean> f : futures)
                 f.get();
         } catch (Exception e) {
         }
 
         // log elapsed time
+        System.out.println(); 
         System.out.println("Time elapsed: " + (System.nanoTime() - start) / 1000000 + " ms");
         pool.shutdownNow();
+        book.finished();
+        // book.print();
+
+        if (LockFreeSkipListValidator.isSeqCst(book, MIN, MAX)) {
+            System.out.println("The history is sequentially consistent");
+        } else {
+            System.out.println("The history is NOT sequentially consistent");
+        }
     }
 
 }
 
-class LockFreeSkipListRecord {
-    int op, v, r;
+class LockFreeSkipListRecord<T> {
+    T v;
+    int op;
+    boolean r;
     long id, ts;
 
-    public LockFreeSkipListRecord(int op, int v, int r) {
+    static final String[] OPERATION = {
+            "CONTAIN",
+            "ADD",
+            "REMOVE",
+    };
+
+    public LockFreeSkipListRecord(int op, T v, boolean r) {
         this.op = op;
         this.v = v;
         this.r = r;
         ts = System.nanoTime();
         id = Thread.currentThread().getId();
     }
+
+    public String operationName() {
+        return LockFreeSkipListRecord.OPERATION[op];
+    }
 }
 
-class LockFreeSkipListRecordBook {
-    ArrayList<LockFreeSkipListRecord> records = new ArrayList<LockFreeSkipListRecord>();
+class LockFreeSkipListRecordBook<T> {
+    ArrayList<LockFreeSkipListRecord<T>> records = new ArrayList<LockFreeSkipListRecord<T>>();
 
-    public void record(int op, int v, int r) {
-        records.add(new LockFreeSkipListRecord(op, v, r));
+    public void record(int op, T v, boolean r) {
+        records.add(new LockFreeSkipListRecord<T>(op, v, r));
     }
+
+    public void finished() {
+        records.sort((a, b) -> a.ts < b.ts ? -1 : 1);
+    }
+
+    public void print(T filter) {
+        System.out.println();
+        int count = 0;
+
+        for (LockFreeSkipListRecord<T> r : records) {
+            count += 1;
+            if (filter != null && r.v != filter) continue; 
+            System.out.printf("%6d (%12d): %2d - %7s %7d %5b\n", count - 1, r.ts, r.id, r.operationName(), r.v, r.r);
+        }
+
+        System.out.println();
+        System.out.println("Total " + records.size() + " operations.");
+    }
+
+}
+
+class LockFreeSkipListValidator {
+
+    static final String[] OPERATION = {
+            "CONTAIN",
+            "ADD",
+            "REMOVE",
+    };
+
+    public static boolean isSeqCst(LockFreeSkipListRecordBook<Integer> book, int min, int max) {
+        assert max >= min;
+        int length = max - min;
+        int count = 0;
+        int[] latestOf = new int[length];
+        int[] latestSeenAt = new int[length];
+
+        for (LockFreeSkipListRecord<Integer> r : book.records) {
+            int index = r.v - min;
+            int latest = latestOf[index];
+            int latestSeenIndex = latestSeenAt[index];
+            count++;
+
+            if (r.op == 0) { // CONTAIN
+                if (latest == 0 && !r.r)
+                    continue;
+                else if (latest == 1 && r.r)
+                    continue;
+                else if (latest == 2 && !r.r)
+                    continue;
+            } else if (r.op == 1) { // ADD
+                if (latest == 0 && r.r) {
+                    latestOf[index] = r.op;
+                    latestSeenAt[index] = count - 1;
+                    continue;
+                } else if (latest == 1 && !r.r)
+                    continue;
+                else if (latest == 2 && r.r) {
+                    latestOf[index] = r.op;
+                    latestSeenAt[index] = count - 1;
+                    continue;
+                }
+            } else if (r.op == 2) { // REMOVE
+                if (latest == 0 && !r.r)
+                    continue;
+                else if (latest == 1 && r.r) {
+                    latestOf[index] = r.op;
+                    latestSeenAt[index] = count - 1;
+                    continue;
+                } else if (latest == 2 && !r.r)
+                    continue;
+            } else {
+                throw new Error("Unexpected operation " + r.op);
+            }
+
+            book.print(r.v);
+            System.out.println();
+            System.out.printf("Violate sequential consistency at %d %s where previous operation is %s at index %d\n",
+                    count - 1,
+                    OPERATION[r.op],
+                    OPERATION[latest],
+                    latestSeenIndex);
+            System.out.println();
+
+            return false;
+        }
+
+        return true;
+    }
+
 }
