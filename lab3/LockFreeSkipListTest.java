@@ -147,6 +147,7 @@ class LockFreeSkipListRecord<T> {
     int op;
     boolean r;
     long id, ts;
+    String note; 
 
     static final String[] OPERATION = {
             "CONTAIN",
@@ -158,6 +159,15 @@ class LockFreeSkipListRecord<T> {
         this.op = op;
         this.v = v;
         this.r = r;
+        ts = System.nanoTime();
+        id = Thread.currentThread().getId();
+    }
+
+    public LockFreeSkipListRecord(int op, T v, boolean r, String note) {
+        this.op = op;
+        this.v = v;
+        this.r = r;
+        this.note = note; 
         ts = System.nanoTime();
         id = Thread.currentThread().getId();
     }
@@ -174,6 +184,10 @@ class LockFreeSkipListRecordBook<T> {
         records.add(new LockFreeSkipListRecord<T>(op, v, r));
     }
 
+    public void record(int op, T v, boolean r, String note) {
+        records.add(new LockFreeSkipListRecord<T>(op, v, r, note));
+    }
+
     public void finished() {
         records.sort((a, b) -> a.ts < b.ts ? -1 : 1);
     }
@@ -185,7 +199,9 @@ class LockFreeSkipListRecordBook<T> {
         for (LockFreeSkipListRecord<T> r : records) {
             count += 1;
             if (filter != null && r.v != filter) continue; 
-            System.out.printf("%6d (%12d): %2d - %7s %7d %5b\n", count - 1, r.ts, r.id, r.operationName(), r.v, r.r);
+            System.out.printf("%6d (%12d): %2d - %7s %7d %5b - ", count - 1, r.ts, r.id, r.operationName(), r.v, r.r);
+            if (r.note != null) System.out.println(r.note); 
+            else System.out.println();
         }
 
         System.out.println();

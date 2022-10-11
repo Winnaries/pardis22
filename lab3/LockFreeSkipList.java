@@ -103,7 +103,8 @@ public final class LockFreeSkipList<T> {
 					return false;
 				}
 			} finally {
-				if (book != null) bookMutex.unlock();
+				if (book != null)
+					bookMutex.unlock();
 			}
 
 			// actual add block
@@ -174,7 +175,7 @@ public final class LockFreeSkipList<T> {
 					// LINEARIZED:
 					// Basically non-existent
 					if (book != null) {
-						book.record(2, x, false);
+						book.record(2, x, false, "not existed");
 					}
 
 					return false;
@@ -207,12 +208,14 @@ public final class LockFreeSkipList<T> {
 
 			boolean[] marked = { false };
 			succ = nodeToRemove.next[bottomLevel].get(marked);
+			int count = 0;
 			while (true) {
-				// POTENTIALLY AHEAD
+				// POTENTIALLY
 				if (book != null)
 					bookMutex.lock();
 
 				try {
+					succ = nodeToRemove.next[bottomLevel].get(marked);
 					boolean iMarkedIt = nodeToRemove.next[bottomLevel].compareAndSet(succ, succ, false, true);
 					succ = succs[bottomLevel].next[bottomLevel].get(marked);
 					if (iMarkedIt) {
@@ -223,7 +226,7 @@ public final class LockFreeSkipList<T> {
 						// LINEARIZED:
 						// The target node is removed by the thread itself.
 						if (book != null) {
-							book.record(2, x, true);
+							book.record(2, x, true, "own " + count);
 						}
 
 						return true;
@@ -235,13 +238,15 @@ public final class LockFreeSkipList<T> {
 						// The target node is removed by the other thread
 						// who was one-step ahead of me.
 						if (book != null) {
-							book.record(2, x, false);
+							book.record(2, x, false, "other " + count);
 						}
 
 						return false;
 					}
 					// otherwise, a node is added after the target node,
 					// and causes succ to change
+
+					count++;
 				} finally {
 					if (book != null)
 						bookMutex.unlock();
