@@ -16,7 +16,7 @@ public class LockFreeSkipListTest {
     // static final int MAX = 10_000_000;
     // static final int LENGTH = 10_000_000;
 
-    static final double[] CUMULATIVE_PROB = { 0.8, 0.9, 1.0 };
+    static final double[] CUMULATIVE_PROB = { 0.0, 0.5, 1.0 };
 
     static class Task implements Callable<Boolean> {
         int id;
@@ -283,7 +283,8 @@ class LockFreeSkipListValidator {
                 throw new Error("Unexpected operation " + r.op);
             }
 
-            book.print(latestSeenIndex - 1000, count);
+            book.print(latestSeenIndex - 100, count + 100);
+            book.print(r.v);
             System.out.println();
             System.out.printf("Violate sequential consistency at %d %s where previous operation is %s at index %d\n",
                     count - 1,

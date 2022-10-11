@@ -56,12 +56,6 @@ public final class LockFreeSkipListWithBook<T> {
 		}
 	}
 
-	/**
-	 * very clever solution to level random
-	 * ---
-	 * Returns a level between 0 to MAX_LEVEL,
-	 * P[randomLevel() = x] = 1/2^(x+1), for x < MAX_LEVEL.
-	 */
 	private static int randomLevel() {
 		int r = rng.nextInt();
 		int level = 0;
@@ -85,13 +79,13 @@ public final class LockFreeSkipListWithBook<T> {
 			// it will eventually return false.
 			bookMutex.lock();
 			boolean found = find(x, preds, succs);
-			if (found)
-				book.record(1, x, false);
-			bookMutex.unlock();
-
 			if (found) {
+				book.record(1, x, false);
+				bookMutex.unlock();
 				return false;
 			}
+
+			bookMutex.unlock(); 
 
 			Node<T> newNode = new Node<T>(x, topLevel);
 
@@ -142,91 +136,71 @@ public final class LockFreeSkipListWithBook<T> {
 		Node<T>[] succs = (Node<T>[]) new Node[MAX_LEVEL + 1];
 		Node<T> succ;
 		while (true) {
-			if (book != null) {
-				bookMutex.lock();
+			bookMutex.lock(); 
+			boolean found = find(x, preds, succs);
+			if (!found) {
+				book.record(2, x, false, "non-existent");
+				bookMutex.unlock(); 
+				return false;
 			}
 
-			try {
-				boolean found = find(x, preds, succs);
-				if (!found) {
-					// LINEARIZED:
-					// Basically non-existent
-					if (book != null) {
-						book.record(2, x, false, "not existed");
-					}
+			bookMutex.unlock(); 
 
-					return false;
-				}
-			} finally {
-				if (book != null)
-					bookMutex.unlock();
-			}
-
-			// actual removal block
 			Node<T> nodeToRemove = succs[bottomLevel];
-
-			// delete from top to bottom link, except the bottom one
 			for (int level = nodeToRemove.topLevel; level >= bottomLevel + 1; level--) {
 				boolean[] marked = { false };
 				succ = nodeToRemove.next[level].get(marked);
 
-				// get the next unmarked node to be replaced with
 				while (!marked[0]) {
 					nodeToRemove.next[level].compareAndSet(succ, succ, false, true);
 
-					// if delete success, proceed because marked must == false
+					// NOTE: If delete success, proceed because marked must == false
 					// otherwise, other process must have add new node after this,
-					// try again one more time
-					//
-					// EXCEPTION: another node can also attempt to mark this link too.
+					// try again one more time. Another case is when another overlapping
+					// process mark the link before this process. 
 					succ = nodeToRemove.next[level].get(marked);
 				}
 			}
 
 			boolean[] marked = { false };
 			succ = nodeToRemove.next[bottomLevel].get(marked);
-			int count = 0;
+
+			// NOTE: The following execution is possible. 
+			//  A: REMOVE(31) - true
+			//  A: ADD(31) - true
+			//  B: REMOVE(31) - fail
+			// REASON: Assume that the remove by A and B overlap. B get stuck here, 
+			// during the execution. A proceed to successfully remove the node. 
+			// Then, A again add the same node. B miss the update. In this case, 
+			// it could be said that the linearization point of B'remove is immediately
+			// after A successful remove, but before A'add. 
 			while (true) {
-				// POTENTIALLY
-				if (book != null)
-					bookMutex.lock();
+				bookMutex.lock(); 
 
-				try {
-					boolean iMarkedIt = nodeToRemove.next[bottomLevel].compareAndSet(succ, succ, false, true);
-					succ = succs[bottomLevel].next[bottomLevel].get(marked);
-					if (iMarkedIt) {
-						// proceed to physically removing them?
-						// not sure why do we need this?
-						find(x, preds, succs);
-
-						// LINEARIZED:
-						// The target node is removed by the thread itself.
-						if (book != null) {
-							book.record(2, x, true, "own " + count);
-						}
-
-						return true;
-					} else if (marked[0]) {
-						// return false because there is a process
-						// that already delete this node before us
-
-						// LINEARIZED:
-						// The target node is removed by the other thread
-						// who was one-step ahead of me.
-						if (book != null) {
-							book.record(2, x, false, "other " + count);
-						}
-
-						return false;
-					}
-					// otherwise, a node is added after the target node,
-					// and causes succ to change
-
-					count++;
-				} finally {
-					if (book != null)
-						bookMutex.unlock();
+				// LINEARIZE: The CAS operation on the next line, if success, 
+				// marks the linearization point of the function. On the other hand, 
+				// if it fails because the expected mark isn't matched, the other thread
+				// must have already remove it before this thread. In which case, the
+				// the linearization point of the function is when the other process successfully
+				// remove it before this process. Otherwise, the next field is changed leading to a retry. 
+				boolean iMarkedIt = nodeToRemove.next[bottomLevel].compareAndSet(succ, succ, false, true);
+				succ = succs[bottomLevel].next[bottomLevel].get(marked);
+				if (iMarkedIt) {
+					// NOTE: This process was able to successfully
+					// delete the node by itself. 
+					book.record(2, x, true, "by itself");
+					bookMutex.unlock(); 
+					find(x, preds, succs);
+					return true;
+				} else if (marked[0]) {
+					// NOTE: Other node get ahead of this node, 
+					// and proceed to remove the node first. 
+					book.record(2, x, false, "by others");
+					bookMutex.unlock(); 
+					return false;
 				}
+
+				bookMutex.unlock(); 
 			}
 		}
 	}
@@ -236,43 +210,24 @@ public final class LockFreeSkipListWithBook<T> {
 		int key = x.hashCode();
 		boolean[] marked = { false };
 
-		// is something get invalidated
-		// mid-way through the function
 		boolean snip;
-
-		// [pred] - [curr] - [succ]
 		Node<T> pred = null;
 		Node<T> curr = null;
 		Node<T> succ = null;
 		retry: while (true) {
-
-			// HEAD - [curr] - [succ]
 			pred = head;
-
-			// Loop from top to bottom levels
 			for (int level = MAX_LEVEL; level >= bottomLevel; level--) {
-
-				// HEAD - 1st - [succ]
 				curr = pred.next[level].getReference();
-
 				while (true) {
-
-					// HEAD - 1st - opt.2nd
 					succ = curr.next[level].get(marked);
 					while (marked[0]) {
-
-						// curr is marked for removal, try delete
 						snip = pred.next[level].compareAndSet(curr, succ, false, false);
 						if (!snip)
 							continue retry;
-
-						// new current = prev successor
 						curr = pred.next[level].getReference();
-						// successor = next successor
 						succ = curr.next[level].get(marked);
 					}
 
-					// HEAD - 1st - X'th
 					if (curr.key < key) {
 						pred = curr;
 						curr = succ;
@@ -281,10 +236,7 @@ public final class LockFreeSkipListWithBook<T> {
 					}
 				}
 
-				// always point to a maximum node with value < v
 				preds[level] = pred;
-
-				// always point to a minimum node with value >= v
 				succs[level] = curr;
 			}
 			return (curr.key == key);
@@ -305,21 +257,21 @@ public final class LockFreeSkipListWithBook<T> {
 			// the unmarked target node at the botom level.
 			// The function is linearize, yet subsequent checks
 			// is required, therefore the lock.
-			bookMutex.lock(); 
+			bookMutex.lock();
 			curr = pred.next[level].getReference();
 
 			// PROBLEM: In some rare cases, the following can happens
 			// * Initial state, 21 - 24 - 27
-			// - Remove(24)	- true
-			// - Add(26) 		- true
+			// - Remove(24) - true
+			// - Add(26) - true
 			// - Contains(26) - false
 			// REASON: Contain's pred get stuck at 24 before it reache
-			// bottom round. Then, another node remove 24 making it a ghost. 
-			// Then, another node add 26 after 21 instead, making it 
+			// bottom round. Then, another node remove 24 making it a ghost.
+			// Then, another node add 26 after 21 instead, making it
 			// invisible to the threads that call contains().
-			// This signal that the function can sometimes 
-			// be linearized because of other threads. In this case, 
-			// when the other thread remove the node pred is pointing to. 
+			// This signal that the function can sometimes
+			// be linearized because of other threads. In this case,
+			// when the other thread remove the node pred is pointing to.
 			while (true) {
 				// LINEARIZE: If the next current happens
 				// to be the target node and unmarked, the
@@ -352,7 +304,7 @@ public final class LockFreeSkipListWithBook<T> {
 					break;
 				}
 			}
-			
+
 			bookMutex.unlock();
 		}
 
