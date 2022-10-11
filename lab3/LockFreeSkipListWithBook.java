@@ -265,18 +265,22 @@ public final class LockFreeSkipListWithBook<T> {
 			// - Remove(24) - true
 			// - Add(26) - true
 			// - Contains(26) - false
-			// REASON: Contain's pred get stuck at 24 before it reache
+			// REASON: Contain's pred get stuck at 24 before it reaches
 			// bottom round. Then, another node remove 24 making it a ghost.
 			// Then, another node add 26 after 21 instead, making it
 			// invisible to the threads that call contains().
 			// This signal that the function can sometimes
 			// be linearized because of other threads. In this case,
 			// when the other thread remove the node pred is pointing to.
+
+			// TL;DR: In a rare case, this function can become linearized, 
+			// when a node referenced by `pred` variable up to the minimum 
+			// node with value more than X are deleted. The reason is simply 
+			// because there is no way for the process to see changes anymore. 
 			while (true) {
 				// LINEARIZE: If the next current happens
 				// to be the target node and unmarked, the
-				// the function linearize.
-				// Only if at the bottom level.
+				// the function linearize. And only if at the bottom level.
 				succ = curr.next[level].get(marked);
 
 				// NOTE: Need to additionally check the node,
