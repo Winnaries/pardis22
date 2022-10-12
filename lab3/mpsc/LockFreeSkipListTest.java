@@ -12,7 +12,22 @@ public class LockFreeSkipListTest {
     static final int MAX = 100;
     static final int LENGTH = 100;
 
-    static final double[] CUMULATIVE_PROB = { 0.8, 0.9, 1.0 };
+    static final double[] CUMULATIVE_PROB = { 0.0, 0.5, 1.0 };
+
+    static class MPSCTask implements Runnable {
+        volatile boolean finished = false; 
+        LockFreeSkipListRecordBook<Integer> book; 
+
+        public MPSCTask(LockFreeSkipListRecordBook<Integer> book) {
+            this.book = book; 
+            this.finished = false; 
+        }
+
+        public void run() {
+            while (!this.finished) book.submit();
+            while (book.submit()) {}
+        }
+    }
 
     static class Task implements Callable<Boolean> {
         int id;
@@ -67,14 +82,17 @@ public class LockFreeSkipListTest {
     }
 
     public static void main(String[] args) {
+        // NOTE: We steal one thread from the total pool
+        // for the logging work through mpsc. 
         boolean isUniform = args[0].equalsIgnoreCase("uniform");
-        int nthreads = Integer.parseInt(args[1]);
+        int nthreads = Integer.parseInt(args[1]) - 1;
         int nitems = Integer.parseInt(args[2]);
         int seed = Integer.parseInt(args[3]);
         int opsPerThread = nitems / nthreads;
 
         Random rng = new Random(seed);
         LockFreeSkipList<Integer> skiplist = new LockFreeSkipList<Integer>();
+        LockFreeSkipListRecordBook<Integer> book = skiplist.book; 
 
         // NOTE: Have to vary the seed because otherwise
         // the random number will happens in the same order.
@@ -97,9 +115,8 @@ public class LockFreeSkipListTest {
 
         // NOTE: Pre-allocated neccessary data
         // structure for parallel execution.
-        List<Future<Boolean>> futures = null;
         ArrayList<Task> tasks = new ArrayList<>();
-        ExecutorService pool = Executors.newFixedThreadPool(nthreads);
+        ExecutorService pool = Executors.newFixedThreadPool(nthreads + 1);
 
         for (int i = 0; i < nthreads; i += 1) {
             tasks.add(new Task(i, skiplist, opsPerThread, rng, population));
@@ -108,16 +125,24 @@ public class LockFreeSkipListTest {
         long start = System.nanoTime();
 
         try {
-            futures = pool.invokeAll(tasks);
+            MPSCTask task = new MPSCTask(book); 
+            Future<?> special = pool.submit(task);
+            List<Future<Boolean>> futures = pool.invokeAll(tasks);
+
+            // NOTE: Waiting for all the threads to finished. 
             for (Future<Boolean> f : futures)
                 f.get();
+
+            // NOTE: Signal the MPSC thread that the operation 
+            // has finished and is currently waiting for you. 
+            task.finished = true;
+            special.get(); 
         } catch (Exception e) {
         }
 
         System.out.println();
         System.out.println("Time elapsed: " + (System.nanoTime() - start) / 1000000 + " ms");
         System.out.println("Total ops: " + (skiplist.book.records.size()));
-        skiplist.book.finished();
 
         if (LockFreeSkipListValidator.isLinearizable(skiplist.book, MIN, MAX)) {
             System.out.println("The history is sequentially consistent");
@@ -169,24 +194,32 @@ class LockFreeSkipListRecord<T> {
 }
 
 class LockFreeSkipListRecordBook<T> {
-    volatile int seq = 0;
+    private volatile int seq = 0; 
+    private MPSC<LockFreeSkipListRecord<T>> mpsc = new MPSC<>(1000);
     ArrayList<LockFreeSkipListRecord<T>> records = new ArrayList<LockFreeSkipListRecord<T>>();
 
-    public LockFreeSkipListRecord<T> record(int op, T v, boolean r) {
-        LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(seq++, op, v, r);
+    public void record(int op, T v, boolean r) {
+        LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(0, op, v, r);
         rc.start = rc.ts;
-        records.add(rc);
-        return rc;
+        mpsc.enq(rc);
     }
 
-    public LockFreeSkipListRecord<T> record(int op, T v, boolean r, long start, String note) {
-        LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(seq++, op, v, r, start, note);
-        records.add(rc);
-        return rc;
+    public void record(int op, T v, boolean r, long start, String note) {
+        LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(0, op, v, r, start, note);
+        mpsc.enq(rc);
     }
 
-    public void finished() {
-        records.sort((a, b) -> a.ts < b.ts ? -1 : 1);
+    public boolean submit() {
+        LockFreeSkipListRecord<T> item = mpsc.deq(); 
+
+        if (item != null) {
+            System.err.println("");
+            records.add(item); 
+            item.seq = seq++; 
+            return true; 
+        }  
+        
+        return false; 
     }
 
     public void print(T filter) {
@@ -246,8 +279,10 @@ class LockFreeSkipListValidator {
     public static boolean isLinearizable(LockFreeSkipListRecordBook<Integer> book, int min, int max,
             boolean allowSpecialCase) {
         assert max >= min;
+
         int ghostChains = 0;
         int competingRemoves = 0;
+        int violations = 0; 
 
         ArrayList<ArrayList<LockFreeSkipListRecord<Integer>>> histories = new ArrayList<>();
 
@@ -259,10 +294,7 @@ class LockFreeSkipListValidator {
 
         for (LockFreeSkipListRecord<Integer> r : book.records) {
             ArrayList<LockFreeSkipListRecord<Integer>> history = histories.get(r.v - min);
-            int lastIndex = history.size() - 1;
-
-            LockFreeSkipListRecord<Integer> latest = history.get(lastIndex);
-            int seenAt = history.get(lastIndex).seq;
+            LockFreeSkipListRecord<Integer> latest = history.get(history.size() - 1);
 
             if (r.op == 0) { // CONTAIN
                 if (latest.op == 0 && !r.r)
@@ -309,20 +341,11 @@ class LockFreeSkipListValidator {
                 }
             }
 
-            book.print(seenAt - 100, r.seq + 100);
-            book.print(r.v);
-            System.out.println();
-            System.out.printf("Violate sequential consistency at %d %s where previous operation is %s at index %d\n",
-                    r.seq - 1,
-                    OPERATION[r.op],
-                    OPERATION[latest.op],
-                    seenAt);
-            System.out.println();
-
-            return false;
+            violations += 1; 
         }
 
         System.out.println();
+        System.out.println("" + (violations) + " violates sequential spec.");
         System.out.println("" + (ghostChains + competingRemoves) + " linearization occurs in another thread:");
         System.out.println(" - " + (ghostChains) + " are ghost chains.");
         System.out.println(" - " + (competingRemoves) + " are competing call to remove.");

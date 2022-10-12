@@ -23,6 +23,10 @@ public class MPSC<E> {
             // NOTE: Competing to enqueue at the 
             // index where localTop is, otherwise retry.  
             if (top.compareAndSet(localTop, localTop + 1)) {
+                // POTENTIAL: Problem here. 
+                // Consumer can just deq here. 
+                // Ignore for now, since I have to 
+                // implement linked list instead.
                 buffer[localTop] = x; 
                 return; 
             }
@@ -37,7 +41,7 @@ public class MPSC<E> {
             return null; 
         }
 
-        if (bottom == localTop) {
+        if (bottom >= localTop) {
             // NOTE: Attempt to reset the buffer
             // if success return null. Otherwise, 
             // other threads must have enqueue 
@@ -48,7 +52,14 @@ public class MPSC<E> {
             }
         } 
 
-        return (E) buffer[bottom++]; 
+        E localItem = (E) buffer[bottom];
+        
+        if (localItem != null) {
+            bottom += 1; 
+            return localItem; 
+        } else {
+            return null; 
+        }
     }
 
 }

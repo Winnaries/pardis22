@@ -1,5 +1,4 @@
 import java.util.concurrent.atomic.AtomicMarkableReference;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.Random;
 
 public final class LockFreeSkipList<T> {
@@ -13,7 +12,6 @@ public final class LockFreeSkipList<T> {
 	private final Node<T> head = new Node<T>(Integer.MIN_VALUE);
 	private final Node<T> tail = new Node<T>(Integer.MAX_VALUE);
 
-	public ReentrantLock bookMutex = new ReentrantLock();
 	public LockFreeSkipListRecordBook<T> book = new LockFreeSkipListRecordBook<T>();
 
 	public LockFreeSkipList() {
@@ -62,9 +60,7 @@ public final class LockFreeSkipList<T> {
 
 	@SuppressWarnings("unchecked")
 	public boolean add(T x) {
-		bookMutex.lock();
 		long start = System.nanoTime();
-		bookMutex.unlock();
 
 		int topLevel = randomLevel();
 		int bottomLevel = 0;
@@ -74,15 +70,11 @@ public final class LockFreeSkipList<T> {
 		while (true) {
 			// LINEARIZED: If found existing node,
 			// it will eventually return false.
-			bookMutex.lock();
 			boolean found = find(x, preds, succs);
 			if (found) {
 				book.record(1, x, false);
-				bookMutex.unlock();
 				return false;
 			}
-
-			bookMutex.unlock(); 
 
 			Node<T> newNode = new Node<T>(x, topLevel);
 
@@ -98,15 +90,10 @@ public final class LockFreeSkipList<T> {
 			// need to retry since the link is not updated.
 			// LINEARIZED: Become linearized if success as new node
 			// is successfully added to the abstract set.
-			bookMutex.lock();
 
-			try {
-				if (!pred.next[bottomLevel].compareAndSet(succ, newNode, false, false))
-					continue;
-				book.record(1, x, true, start, "@" + topLevel + " " + pred.key);
-			} finally {
-				bookMutex.unlock();
-			}
+			if (!pred.next[bottomLevel].compareAndSet(succ, newNode, false, false))
+				continue;
+			book.record(1, x, true, start, "@" + topLevel + " " + pred.key);
 
 			// NOTE: Progressively creating the link
 			// from the second level to top.
@@ -128,24 +115,18 @@ public final class LockFreeSkipList<T> {
 
 	@SuppressWarnings("unchecked")
 	public boolean remove(T x) {
-		bookMutex.lock();
 		long start = System.nanoTime();
-		bookMutex.unlock();
 
 		int bottomLevel = 0;
 		Node<T>[] preds = (Node<T>[]) new Node[MAX_LEVEL + 1];
 		Node<T>[] succs = (Node<T>[]) new Node[MAX_LEVEL + 1];
 		Node<T> succ;
 		while (true) {
-			bookMutex.lock(); 
 			boolean found = find(x, preds, succs);
 			if (!found) {
 				book.record(2, x, false, start, "non-existent");
-				bookMutex.unlock(); 
 				return false;
 			}
-
-			bookMutex.unlock(); 
 
 			Node<T> nodeToRemove = succs[bottomLevel];
 			for (int level = nodeToRemove.topLevel; level >= bottomLevel + 1; level--) {
@@ -176,8 +157,6 @@ public final class LockFreeSkipList<T> {
 			// it could be said that the linearization point of B'remove is immediately
 			// after A successful remove, but before A'add. 
 			while (true) {
-				bookMutex.lock(); 
-
 				// LINEARIZE: The CAS operation on the next line, if success, 
 				// marks the linearization point of the function. On the other hand, 
 				// if it fails because the expected mark isn't matched, the other thread
@@ -190,18 +169,14 @@ public final class LockFreeSkipList<T> {
 					// NOTE: This process was able to successfully
 					// delete the node by itself. 
 					book.record(2, x, true, start, "by itself");
-					bookMutex.unlock(); 
 					find(x, preds, succs);
 					return true;
 				} else if (marked[0]) {
 					// NOTE: Other node get ahead of this node, 
 					// and proceed to remove the node first. 
 					book.record(2, x, false, start, "by others");
-					bookMutex.unlock(); 
 					return false;
 				}
-
-				bookMutex.unlock(); 
 			}
 		}
 	}
@@ -245,9 +220,7 @@ public final class LockFreeSkipList<T> {
 	}
 
 	public boolean contains(T x) {
-		bookMutex.lock();
 		long start = System.nanoTime();
-		bookMutex.unlock();
 
 		int bottomLevel = 0;
 		int v = x.hashCode();
@@ -262,7 +235,6 @@ public final class LockFreeSkipList<T> {
 			// the unmarked target node at the botom level.
 			// The function is linearize, yet subsequent checks
 			// is required, therefore the lock.
-			bookMutex.lock();
 			curr = pred.next[level].getReference();
 
 			// PROBLEM: In some rare cases, the following can happens
@@ -313,11 +285,8 @@ public final class LockFreeSkipList<T> {
 					break;
 				}
 			}
-
-			bookMutex.unlock();
 		}
 		
-		assert found; 
 		return (curr.key == v);
 	}
 }
