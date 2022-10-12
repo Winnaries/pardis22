@@ -16,7 +16,7 @@ public class LockFreeSkipListTest {
     // static final int MAX = 10_000_000;
     // static final int LENGTH = 10_000_000;
 
-    static final double[] CUMULATIVE_PROB = { 0.0, 0.5, 1.0 };
+    static final double[] CUMULATIVE_PROB = { 0.8, 0.9, 1.0 };
 
     static class Task implements Callable<Boolean> {
         int id;
@@ -156,12 +156,13 @@ class LockFreeSkipListRecord<T> {
         id = Thread.currentThread().getId();
     }
 
-    public LockFreeSkipListRecord(int seq, int op, T v, boolean r, String note) {
+    public LockFreeSkipListRecord(int seq, int op, T v, boolean r, long start, String note) {
         this.seq = seq;
         this.op = op;
         this.v = v;
         this.r = r;
         this.note = note;
+        this.start = start; 
         ts = System.nanoTime();
         id = Thread.currentThread().getId();
     }
@@ -176,13 +177,16 @@ class LockFreeSkipListRecordBook<T> {
     ArrayList<LockFreeSkipListRecord<T>> records = new ArrayList<LockFreeSkipListRecord<T>>();
 
     public LockFreeSkipListRecord<T> record(int op, T v, boolean r) {
-        return record(op, v, r, null);  
+        LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(seq++, op, v, r);
+        rc.start = rc.ts; 
+        records.add(rc);
+        return rc;
     }
 
-    public LockFreeSkipListRecord<T> record(int op, T v, boolean r, String note) {
-        LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(seq++, op, v, r, note);
+    public LockFreeSkipListRecord<T> record(int op, T v, boolean r, long start, String note) {
+        LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(seq++, op, v, r, start, note);
         records.add(rc);
-        return rc; 
+        return rc;
     }
 
     public void finished() {
@@ -191,13 +195,13 @@ class LockFreeSkipListRecordBook<T> {
 
     public void print(T filter) {
         System.out.println();
-        int count = 0;
+        long b = records.get(0).start; 
 
         for (LockFreeSkipListRecord<T> r : records) {
-            count += 1;
             if (filter != null && r.v != filter)
                 continue;
-            System.out.printf("%6d/%6d (%12d): %2d - %7s %7d %5b - ", r.seq, count - 1, r.ts, r.id, r.operationName(),
+            System.out.printf("%6d (%9d - %9d): %2d - %7s %7d %5b - ", r.seq, r.start - b, r.ts - b, r.id,
+                    r.operationName(),
                     r.v, r.r);
             if (r.note != null)
                 System.out.println(r.note);
@@ -211,13 +215,14 @@ class LockFreeSkipListRecordBook<T> {
 
     public void print(int from, int to) {
         System.out.println();
-        int count = 0;
+        long b = records.get(0).start;
 
         for (LockFreeSkipListRecord<T> r : records) {
-            int c = count++; 
-            if (c < from || c >= to) continue; 
-            System.out.printf("%6d(%12d): %2d - %7s %7d %5b - ", 
-                c, r.ts, r.id, r.operationName(), r.v, r.r);
+            if (r.seq < from || r.seq >= to)
+                continue;
+            System.out.printf("%6d (%9d - %9d): %2d - %7s %7d %5b - ", r.seq, r.start - b, r.ts - b, r.id,
+                    r.operationName(),
+                    r.v, r.r);
             if (r.note != null)
                 System.out.println(r.note);
             else
@@ -239,58 +244,74 @@ class LockFreeSkipListValidator {
     };
 
     public static boolean isLinearizable(LockFreeSkipListRecordBook<Integer> book, int min, int max) {
+        return isLinearizable(book, min, max, true);
+    }
+
+    public static boolean isLinearizable(LockFreeSkipListRecordBook<Integer> book, int min, int max, boolean allowSpecialCase) {
         assert max >= min;
-        int length = max - min;
-        int count = 0;
-        int[] latestOf = new int[length];
-        int[] latestSeenAt = new int[length];
+
+        ArrayList<ArrayList<LockFreeSkipListRecord<Integer>>> histories = new ArrayList<>();
+
+        for (int i = min; i <= max; i += 1) {
+            ArrayList<LockFreeSkipListRecord<Integer>> initial = new ArrayList<>(); 
+            initial.add(new LockFreeSkipListRecord<Integer>(0, 0, i, false));
+            histories.add(initial);
+        }
 
         for (LockFreeSkipListRecord<Integer> r : book.records) {
-            int index = r.v - min;
-            int latest = latestOf[index];
-            int latestSeenIndex = latestSeenAt[index];
-            count++;
+            ArrayList<LockFreeSkipListRecord<Integer>> history = histories.get(r.v - min); 
+            int lastIndex = history.size() - 1; 
+
+            LockFreeSkipListRecord<Integer> latest = history.get(lastIndex);
+            int seenAt = history.get(lastIndex).seq;
 
             if (r.op == 0) { // CONTAIN
-                if (latest == 0 && !r.r)
+                if (latest.op == 0 && !r.r)
                     continue;
-                else if (latest == 1 && r.r)
+                else if (latest.op == 1 && r.r)
                     continue;
-                else if (latest == 2 && !r.r)
+                else if (latest.op == 2 && !r.r)
                     continue;
             } else if (r.op == 1) { // ADD
-                if (latest == 0 && r.r) {
-                    latestOf[index] = r.op;
-                    latestSeenAt[index] = count - 1;
+                if (latest.op == 0 && r.r) {
+                    history.add(r);
                     continue;
-                } else if (latest == 1 && !r.r)
+                } else if (latest.op == 1 && !r.r)
                     continue;
-                else if (latest == 2 && r.r) {
-                    latestOf[index] = r.op;
-                    latestSeenAt[index] = count - 1;
+                else if (latest.op == 2 && r.r) {
+                    history.add(r); 
                     continue;
                 }
             } else if (r.op == 2) { // REMOVE
-                if (latest == 0 && !r.r)
+                if (latest.op == 0 && !r.r)
                     continue;
-                else if (latest == 1 && r.r) {
-                    latestOf[index] = r.op;
-                    latestSeenAt[index] = count - 1;
+                else if (latest.op == 1 && r.r) {
+                    history.add(r); 
                     continue;
-                } else if (latest == 2 && !r.r)
+                } else if (latest.op == 2 && !r.r)
                     continue;
             } else {
                 throw new Error("Unexpected operation " + r.op);
             }
 
-            book.print(latestSeenIndex - 100, count + 100);
+            // In the special cases, try to reorder.  
+            // 1. REMOVE-ADD-REMOVE     : Competing Remove
+            // 2. REMOVE-ADD-CONTAINS   : Ghost Chain
+
+            if (allowSpecialCase && latest.op == 1 && (r.op != 1)) {
+                if (r.start < latest.ts) {
+                    continue; 
+                }
+            }
+
+            book.print(seenAt - 100, r.seq + 100);
             book.print(r.v);
             System.out.println();
             System.out.printf("Violate sequential consistency at %d %s where previous operation is %s at index %d\n",
-                    count - 1,
+                    r.seq - 1,
                     OPERATION[r.op],
-                    OPERATION[latest],
-                    latestSeenIndex);
+                    OPERATION[latest.op],
+                    seenAt);
             System.out.println();
 
             return false;

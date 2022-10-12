@@ -69,6 +69,10 @@ public final class LockFreeSkipListWithBook<T> {
 
 	@SuppressWarnings("unchecked")
 	public boolean add(T x) {
+		bookMutex.lock();
+		long start = System.nanoTime();
+		bookMutex.unlock();
+
 		int topLevel = randomLevel();
 		int bottomLevel = 0;
 		Node<T>[] preds = (Node<T>[]) new Node[MAX_LEVEL + 1];
@@ -106,7 +110,7 @@ public final class LockFreeSkipListWithBook<T> {
 			try {
 				if (!pred.next[bottomLevel].compareAndSet(succ, newNode, false, false))
 					continue;
-				book.record(1, x, true, "@" + topLevel + " " + pred.key);
+				book.record(1, x, true, start, "@" + topLevel + " " + pred.key);
 			} finally {
 				bookMutex.unlock();
 			}
@@ -131,6 +135,10 @@ public final class LockFreeSkipListWithBook<T> {
 
 	@SuppressWarnings("unchecked")
 	public boolean remove(T x) {
+		bookMutex.lock();
+		long start = System.nanoTime();
+		bookMutex.unlock();
+
 		int bottomLevel = 0;
 		Node<T>[] preds = (Node<T>[]) new Node[MAX_LEVEL + 1];
 		Node<T>[] succs = (Node<T>[]) new Node[MAX_LEVEL + 1];
@@ -139,7 +147,7 @@ public final class LockFreeSkipListWithBook<T> {
 			bookMutex.lock(); 
 			boolean found = find(x, preds, succs);
 			if (!found) {
-				book.record(2, x, false, "non-existent");
+				book.record(2, x, false, start, "non-existent");
 				bookMutex.unlock(); 
 				return false;
 			}
@@ -188,14 +196,14 @@ public final class LockFreeSkipListWithBook<T> {
 				if (iMarkedIt) {
 					// NOTE: This process was able to successfully
 					// delete the node by itself. 
-					book.record(2, x, true, "by itself");
+					book.record(2, x, true, start, "by itself");
 					bookMutex.unlock(); 
 					find(x, preds, succs);
 					return true;
 				} else if (marked[0]) {
 					// NOTE: Other node get ahead of this node, 
 					// and proceed to remove the node first. 
-					book.record(2, x, false, "by others");
+					book.record(2, x, false, start, "by others");
 					bookMutex.unlock(); 
 					return false;
 				}
@@ -244,6 +252,10 @@ public final class LockFreeSkipListWithBook<T> {
 	}
 
 	public boolean contains(T x) {
+		bookMutex.lock();
+		long start = System.nanoTime();
+		bookMutex.unlock();
+
 		int bottomLevel = 0;
 		int v = x.hashCode();
 		boolean[] marked = { false };
@@ -288,10 +300,10 @@ public final class LockFreeSkipListWithBook<T> {
 				// HEAD and TAIL. The node could be null.
 				if (!found && !marked[0]) {
 					if (curr.key == v) {
-						book.record(0, x, true, "found @" + level + " " + pred.key);
+						book.record(0, x, true, start, "found @" + level + " " + pred.key);
 						found = true;
 					} else if (level == bottomLevel && curr.key > v) {
-						book.record(0, x, false, "not found @" + level + " " + pred.key + " -> " + curr.key);
+						book.record(0, x, false, start, "not found @" + level + " " + pred.key + " -> " + curr.key);
 						found = true;
 					}
 				}
@@ -311,7 +323,8 @@ public final class LockFreeSkipListWithBook<T> {
 
 			bookMutex.unlock();
 		}
-
+		
+		assert found; 
 		return (curr.key == v);
 	}
 }
