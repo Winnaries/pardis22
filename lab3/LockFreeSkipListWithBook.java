@@ -23,16 +23,10 @@ public final class LockFreeSkipListWithBook<T> {
 	}
 
 	private static final class Node<T> {
-		// key of this node, ordered
 		final int key;
-
-		// next node of each level.
 		final AtomicMarkableReference<Node<T>>[] next;
-
-		// top level of this node, not the skiplist.
 		private final int topLevel;
 
-		// just create a new node, and chosen level of references
 		@SuppressWarnings("unchecked")
 		public Node(int key) {
 			this.key = key;
@@ -43,7 +37,6 @@ public final class LockFreeSkipListWithBook<T> {
 			topLevel = MAX_LEVEL;
 		}
 
-		// similar to the previous one, but height specified
 		@SuppressWarnings("unchecked")
 		public Node(T x, int height) {
 			// value = x;
