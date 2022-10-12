@@ -2,7 +2,7 @@ import java.util.concurrent.atomic.AtomicMarkableReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.Random;
 
-public final class LockFreeSkipListWithBook<T> {
+public final class LockFreeSkipList<T> {
 	/* Number of levels */
 	private static final int MAX_LEVEL = 16;
 
@@ -16,9 +16,9 @@ public final class LockFreeSkipListWithBook<T> {
 	public ReentrantLock bookMutex = new ReentrantLock();
 	public LockFreeSkipListRecordBook<T> book = new LockFreeSkipListRecordBook<T>();
 
-	public LockFreeSkipListWithBook() {
+	public LockFreeSkipList() {
 		for (int i = 0; i < head.next.length; i++) {
-			head.next[i] = new AtomicMarkableReference<LockFreeSkipListWithBook.Node<T>>(tail, false);
+			head.next[i] = new AtomicMarkableReference<LockFreeSkipList.Node<T>>(tail, false);
 		}
 	}
 

@@ -9,12 +9,8 @@ import java.util.concurrent.Future;
 public class LockFreeSkipListTest {
 
     static final int MIN = 0;
-    static final int MAX = 10000;
-    static final int LENGTH = 10000;
-
-    // static final int MIN = 0;
-    // static final int MAX = 10_000_000;
-    // static final int LENGTH = 10_000_000;
+    static final int MAX = 100;
+    static final int LENGTH = 100;
 
     static final double[] CUMULATIVE_PROB = { 0.8, 0.9, 1.0 };
 
@@ -24,9 +20,9 @@ public class LockFreeSkipListTest {
         Integer[] values;
 
         // global variables, shared across thread
-        LockFreeSkipListWithBook<Integer> skiplist;
+        LockFreeSkipList<Integer> skiplist;
 
-        public Task(int id, LockFreeSkipListWithBook<Integer> skiplist, int nops, Random rng, Population population) {
+        public Task(int id, LockFreeSkipList<Integer> skiplist, int nops, Random rng, Population population) {
             ops = new Integer[nops];
             values = new Integer[nops];
             int[] stats = new int[3];
@@ -77,33 +73,33 @@ public class LockFreeSkipListTest {
         int seed = Integer.parseInt(args[3]);
         int opsPerThread = nitems / nthreads;
 
-        // create the data structure
         Random rng = new Random(seed);
-        LockFreeSkipListWithBook<Integer> skiplist = new LockFreeSkipListWithBook<Integer>();
+        LockFreeSkipList<Integer> skiplist = new LockFreeSkipList<Integer>();
 
-        // pre-populate the skiplist
+        // NOTE: Have to vary the seed because otherwise
+        // the random number will happens in the same order.
         Population prefill = isUniform
                 ? new UniformPopulation(seed * 2, MIN, MAX)
                 : new NormalPopulation(seed * 2, MIN, MAX, 0f, 1f);
+        Population population = isUniform
+                ? new UniformPopulation(seed * 3, MIN, MAX)
+                : new NormalPopulation(seed * 3, MIN, MAX, 0f, 1f);
 
+        // NOTE: Insert 10 millions random integers
+        // before running the test.
         int success = 0;
         for (int i = 0; i < LENGTH; i += 1) {
             if (skiplist.add(prefill.getSample()))
                 success++;
         }
 
-        // log number of successfully added items
         System.out.printf("-1: %7d items\n", success);
 
-        // create thread pool
+        // NOTE: Pre-allocated neccessary data
+        // structure for parallel execution.
         List<Future<Boolean>> futures = null;
         ArrayList<Task> tasks = new ArrayList<>();
         ExecutorService pool = Executors.newFixedThreadPool(nthreads);
-
-        // operation value distribution
-        Population population = isUniform
-                ? new UniformPopulation(seed * 3, 0, 100)
-                : new NormalPopulation(seed * 3, 0, 100, 0f, 1f);
 
         for (int i = 0; i < nthreads; i += 1) {
             tasks.add(new Task(i, skiplist, opsPerThread, rng, population));
