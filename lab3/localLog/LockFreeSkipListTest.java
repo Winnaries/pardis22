@@ -25,13 +25,14 @@ public class LockFreeSkipListTest {
 
         // global variables, shared across thread
         LockFreeSkipListWithLocalLog<Integer> skiplist;
-
-        public Task(int id, LockFreeSkipListWithLocalLog<Integer> skiplist, int nops, Random rng, Population population) {
+        ArrayList<ThreadLocal<LockFreeSkipListRecordBook<Integer>>> books;
+        public Task(int id, LockFreeSkipListWithLocalLog<Integer> skiplist, int nops, Random rng, Population population, ArrayList<ThreadLocal<LockFreeSkipListRecordBook<Integer>>> books) {
             ops = new Integer[nops];
             values = new Integer[nops];
             int[] stats = new int[3];
             this.skiplist = skiplist;
             this.id = id;
+            this.books = books;
 
             int ndist = CUMULATIVE_PROB.length;
             outer: for (int i = 0; i < nops; i += 1) {
@@ -49,19 +50,20 @@ public class LockFreeSkipListTest {
                 ops[i] = ndist - 1;
                 stats[ndist - 1] += 1;
             }
-
+            // System.out.println(skiplist.book.get().records.size());
             System.out.printf("%2d: %7d contains, %7d add, %7d remove\n",
                     id, stats[0], stats[1], stats[2]);
         }
 
         public Boolean call() {
+            
             for (int i = 0; i < ops.length; i += 1) {
                 if (ops[i] == 0)
-                    skiplist.contains(values[i]);
+                    skiplist.contains(values[i], books.get(id));
                 else if (ops[i] == 1)
-                    skiplist.add(values[i]);
+                    skiplist.add(values[i], books.get(id));
                 else if (ops[i] == 2)
-                    skiplist.remove(values[i]);
+                    skiplist.remove(values[i], books.get(id));
                 else
                     throw new Error("Unexpected operation " + ops[i]);
             }
@@ -89,8 +91,10 @@ public class LockFreeSkipListTest {
                 : new NormalPopulation(seed * 2, MIN, MAX, 0f, 1f);
 
         int success = 0;
+        ThreadLocal<LockFreeSkipListRecordBook<Integer>> dbook = new ThreadLocal<LockFreeSkipListRecordBook<Integer>>();
+        dbook.set(new LockFreeSkipListRecordBook<Integer>());
         for (int i = 0; i < LENGTH; i += 1) {
-            if (skiplist.add(prefill.getSample()))
+            if (skiplist.add(prefill.getSample(), dbook))
                 success++;
         }
 
@@ -101,14 +105,19 @@ public class LockFreeSkipListTest {
         List<Future<Boolean>> futures = null;
         ArrayList<Task> tasks = new ArrayList<>();
         ExecutorService pool = Executors.newFixedThreadPool(nthreads);
-
+        ArrayList<ThreadLocal<LockFreeSkipListRecordBook<Integer>>> books = new ArrayList<ThreadLocal<LockFreeSkipListRecordBook<Integer>>>();
         // operation value distribution
         Population population = isUniform
                 ? new UniformPopulation(seed * 3, 0, 100)
                 : new NormalPopulation(seed * 3, 0, 100, 0f, 1f);
 
         for (int i = 0; i < nthreads; i += 1) {
-            tasks.add(new Task(i, skiplist, opsPerThread, rng, population));
+            ThreadLocal<LockFreeSkipListRecordBook<Integer>> book = new ThreadLocal<LockFreeSkipListRecordBook<Integer>>();
+            book.set(dbook.get());
+            books.add(book);
+        }
+        for (int i = 0; i < nthreads; i += 1) {
+            tasks.add(new Task(i, skiplist, opsPerThread, rng, population, books));
         }
 
         long start = System.nanoTime();
@@ -117,17 +126,24 @@ public class LockFreeSkipListTest {
             futures = pool.invokeAll(tasks);
             for (Future<Boolean> f : futures)
                 f.get();
+                // System.out.println(f.get());
+                // System.out.println(skiplist.book.get().records.size());
         } catch (Exception e) {
         }
 
         System.out.println();
         System.out.println("Time elapsed: " + (System.nanoTime() - start) / 1000000 + " ms");
-        System.out.println("Total ops: " + (skiplist.book.get().records.size()));
-        skiplist.book.get().finished();
+        //Combine from all threads
+        LockFreeSkipListRecordBook<Integer> allBooks = new LockFreeSkipListRecordBook<Integer>();
+        for (int i = 0; i < nthreads; i += 1) {
+            allBooks.records.addAll(books.get(i).get().records);
+        }
+        System.out.println("Total ops: " + (allBooks.records.size()));
+        // skiplist.book.get().finished();
         // if (localLog) {
             
         // }
-        if (LockFreeSkipListValidator.isLinearizable(skiplist.book.get(), MIN, MAX)) {
+        if (LockFreeSkipListValidator.isLinearizable(allBooks, MIN, MAX)) {
             System.out.println("The history is sequentially consistent");
         } else {
             System.out.println("The history is NOT sequentially consistent");

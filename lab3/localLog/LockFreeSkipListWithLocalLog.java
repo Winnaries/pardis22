@@ -13,13 +13,13 @@ public final class LockFreeSkipListWithLocalLog<T> {
 	private final Node<T> head = new Node<T>(Integer.MIN_VALUE);
 	private final Node<T> tail = new Node<T>(Integer.MAX_VALUE);
 
-	public ThreadLocal<LockFreeSkipListRecordBook<T>> book = new ThreadLocal<LockFreeSkipListRecordBook<T>>();
+	// public ThreadLocal<LockFreeSkipListRecordBook<T>> book = new ThreadLocal<LockFreeSkipListRecordBook<T>>();
 
 	public LockFreeSkipListWithLocalLog() {
 		for (int i = 0; i < head.next.length; i++) {
 			head.next[i] = new AtomicMarkableReference<LockFreeSkipListWithLocalLog.Node<T>>(tail, false);
 		}
-		book.set(new LockFreeSkipListRecordBook<T>());
+		// book.set(new LockFreeSkipListRecordBook<T>());
 	}
 
 	private static final class Node<T> {
@@ -61,7 +61,7 @@ public final class LockFreeSkipListWithLocalLog<T> {
 	}
 
 	@SuppressWarnings("unchecked")
-	public boolean add(T x) {
+	public boolean add(T x, ThreadLocal<LockFreeSkipListRecordBook<T>> book) {
 		long start = System.nanoTime();
 
 		int topLevel = randomLevel();
@@ -120,7 +120,7 @@ public final class LockFreeSkipListWithLocalLog<T> {
 	}
 
 	@SuppressWarnings("unchecked")
-	public boolean remove(T x) {
+	public boolean remove(T x, ThreadLocal<LockFreeSkipListRecordBook<T>> book) {
 		long start = System.nanoTime();
 
 		int bottomLevel = 0;
@@ -227,7 +227,7 @@ public final class LockFreeSkipListWithLocalLog<T> {
 		}
 	}
 
-	public boolean contains(T x) {
+	public boolean contains(T x, ThreadLocal<LockFreeSkipListRecordBook<T>> book) {
 		long start = System.nanoTime();
 
 		int bottomLevel = 0;
