@@ -162,7 +162,7 @@ class LockFreeSkipListRecord<T> {
         this.v = v;
         this.r = r;
         this.note = note;
-        this.start = start; 
+        this.start = start;
         ts = System.nanoTime();
         id = Thread.currentThread().getId();
     }
@@ -178,7 +178,7 @@ class LockFreeSkipListRecordBook<T> {
 
     public LockFreeSkipListRecord<T> record(int op, T v, boolean r) {
         LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(seq++, op, v, r);
-        rc.start = rc.ts; 
+        rc.start = rc.ts;
         records.add(rc);
         return rc;
     }
@@ -195,7 +195,7 @@ class LockFreeSkipListRecordBook<T> {
 
     public void print(T filter) {
         System.out.println();
-        long b = records.get(0).start; 
+        long b = records.get(0).start;
 
         for (LockFreeSkipListRecord<T> r : records) {
             if (filter != null && r.v != filter)
@@ -247,20 +247,23 @@ class LockFreeSkipListValidator {
         return isLinearizable(book, min, max, true);
     }
 
-    public static boolean isLinearizable(LockFreeSkipListRecordBook<Integer> book, int min, int max, boolean allowSpecialCase) {
+    public static boolean isLinearizable(LockFreeSkipListRecordBook<Integer> book, int min, int max,
+            boolean allowSpecialCase) {
         assert max >= min;
+        int ghostChains = 0;
+        int competingRemoves = 0;
 
         ArrayList<ArrayList<LockFreeSkipListRecord<Integer>>> histories = new ArrayList<>();
 
         for (int i = min; i <= max; i += 1) {
-            ArrayList<LockFreeSkipListRecord<Integer>> initial = new ArrayList<>(); 
+            ArrayList<LockFreeSkipListRecord<Integer>> initial = new ArrayList<>();
             initial.add(new LockFreeSkipListRecord<Integer>(0, 0, i, false));
             histories.add(initial);
         }
 
         for (LockFreeSkipListRecord<Integer> r : book.records) {
-            ArrayList<LockFreeSkipListRecord<Integer>> history = histories.get(r.v - min); 
-            int lastIndex = history.size() - 1; 
+            ArrayList<LockFreeSkipListRecord<Integer>> history = histories.get(r.v - min);
+            int lastIndex = history.size() - 1;
 
             LockFreeSkipListRecord<Integer> latest = history.get(lastIndex);
             int seenAt = history.get(lastIndex).seq;
@@ -279,14 +282,14 @@ class LockFreeSkipListValidator {
                 } else if (latest.op == 1 && !r.r)
                     continue;
                 else if (latest.op == 2 && r.r) {
-                    history.add(r); 
+                    history.add(r);
                     continue;
                 }
             } else if (r.op == 2) { // REMOVE
                 if (latest.op == 0 && !r.r)
                     continue;
                 else if (latest.op == 1 && r.r) {
-                    history.add(r); 
+                    history.add(r);
                     continue;
                 } else if (latest.op == 2 && !r.r)
                     continue;
@@ -294,13 +297,19 @@ class LockFreeSkipListValidator {
                 throw new Error("Unexpected operation " + r.op);
             }
 
-            // In the special cases, try to reorder.  
-            // 1. REMOVE-ADD-REMOVE     : Competing Remove
-            // 2. REMOVE-ADD-CONTAINS   : Ghost Chain
+            // In the special cases, try to reorder.
+            // 1. REMOVE-ADD-REMOVE : Competing Remove
+            // 2. REMOVE-ADD-CONTAINS : Ghost Chain
 
             if (allowSpecialCase && latest.op == 1 && (r.op != 1)) {
                 if (r.start < latest.ts) {
-                    continue; 
+                    if (r.op == 0) {
+                        ghostChains++;
+                    } else {
+                        competingRemoves++;
+                    }
+
+                    continue;
                 }
             }
 
@@ -316,6 +325,12 @@ class LockFreeSkipListValidator {
 
             return false;
         }
+
+        System.out.println();
+        System.out.println("" + (ghostChains + competingRemoves) + " linearization occurs in another thread:");
+        System.out.println(" - " + (ghostChains) + " are ghost chains.");
+        System.out.println(" - " + (competingRemoves) + " are competing call to remove.");
+        System.out.println();
 
         return true;
     }
