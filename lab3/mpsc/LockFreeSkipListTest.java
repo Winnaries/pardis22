@@ -12,20 +12,28 @@ import sync.MPSC;
 
 public class LockFreeSkipListTest {
 
-    static class MPSCTask implements Runnable {
+    static class MPSCTask implements Callable<ArrayList<LockFreeSkipListRecord<Integer>>> {
         volatile boolean finished = false;
-        LockFreeSkipListRecordBook<Integer> book;
+        volatile LockFreeSkipListRecordBook<Integer> book;
 
         public MPSCTask(LockFreeSkipListRecordBook<Integer> book) {
             this.book = book;
             this.finished = false;
         }
 
-        public void run() {
-            while (!this.finished)
-                book.submit();
-            while (book.submit()) {
+        public ArrayList<LockFreeSkipListRecord<Integer>> call() {
+            ArrayList<LockFreeSkipListRecord<Integer>> records = new ArrayList<>(); 
+            
+            while (!this.finished) {
+                LockFreeSkipListRecord<Integer> temp = book.mpsc.deq(); 
+                while (temp != null) {
+                    System.err.println(""); 
+                    records.add(temp);
+                    temp = book.mpsc.deq(); 
+                }
             }
+
+            return records; 
         }
     }
 
@@ -87,6 +95,10 @@ public class LockFreeSkipListTest {
 
         LockFreeSkipList<Integer> skiplist = new LockFreeSkipList<Integer>();
         LockFreeSkipListRecordBook<Integer> book = skiplist.book;
+        MPSCTask task = new MPSCTask(book);
+        ArrayList<Task> tasks = new ArrayList<>();
+        ExecutorService pool = Executors.newFixedThreadPool(config.nthreads + 1);
+        Future<ArrayList<LockFreeSkipListRecord<Integer>>> special = pool.submit(task);
 
         int success = 0;
         for (int i = 0; i < config.nitems; i += 1) {
@@ -96,8 +108,6 @@ public class LockFreeSkipListTest {
 
         System.out.printf("-1: %7d items\n", success);
 
-        ArrayList<Task> tasks = new ArrayList<>();
-        ExecutorService pool = Executors.newFixedThreadPool(config.nthreads + 1);
 
         for (int i = 0; i < config.nthreads; i += 1) {
             tasks.add(new Task(i, skiplist, config));
@@ -106,18 +116,17 @@ public class LockFreeSkipListTest {
         long start = System.nanoTime();
 
         try {
-            MPSCTask task = new MPSCTask(book);
-            Future<?> special = pool.submit(task);
             List<Future<Boolean>> futures = pool.invokeAll(tasks);
             for (Future<Boolean> f : futures)
                 f.get();
+            System.out.println();
+            System.out.println("Time elapsed: " + (System.nanoTime() - start) / 1000000 + " ms");
             task.finished = true;
-            special.get();
+            book.records.addAll(special.get());
         } catch (Exception e) {
         }
 
-        System.out.println();
-        System.out.println("Time elapsed: " + (System.nanoTime() - start) / 1000000 + " ms");
+        book.finished();
         System.out.println("Total ops: " + (skiplist.book.records.size()));
 
         if (LockFreeSkipListValidator.isLinearizable(skiplist.book, config.min, config.max)) {
@@ -170,9 +179,8 @@ class LockFreeSkipListRecord<T> {
 }
 
 class LockFreeSkipListRecordBook<T> {
-    private volatile int seq = 0;
-    private MPSC<LockFreeSkipListRecord<T>> mpsc = new MPSC<>(10000);
-    ArrayList<LockFreeSkipListRecord<T>> records = new ArrayList<LockFreeSkipListRecord<T>>();
+    public MPSC<LockFreeSkipListRecord<T>> mpsc = new MPSC<>(10000);
+    public volatile ArrayList<LockFreeSkipListRecord<T>> records = new ArrayList<LockFreeSkipListRecord<T>>();
 
     public void record(int op, T v, boolean r) {
         LockFreeSkipListRecord<T> rc = new LockFreeSkipListRecord<T>(0, op, v, r);
@@ -187,15 +195,13 @@ class LockFreeSkipListRecordBook<T> {
 
     public boolean submit() {
         LockFreeSkipListRecord<T> item = mpsc.deq();
+        if (item == null) return false; 
+        records.add(item);
+        return true;
+    }
 
-        if (item != null) {
-            System.err.println("");
-            records.add(item);
-            item.seq = seq++;
-            return true;
-        }
-
-        return false;
+    public void finished() {
+        records.sort((a, b) -> a.ts < b.ts ? -1 : 1);
     }
 
     public void print(T filter) {

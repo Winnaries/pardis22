@@ -1,14 +1,15 @@
 package sync;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 public class MPSC<E> {
     private int bottom = 0;
-    private Object[] buffer;
+    private AtomicReferenceArray<Object> buffer;
     private AtomicInteger top = new AtomicInteger(0);
 
     public MPSC(int capacity) {
-        buffer = new Object[capacity];
+        buffer = new AtomicReferenceArray<>(capacity);
     }
 
     public void enq(E x) {
@@ -19,7 +20,7 @@ public class MPSC<E> {
 
             // NOTE: Waiting for the dequeuing
             // thread to reset the buffer.
-            while (localTop >= buffer.length)
+            while (localTop >= buffer.length())
                 localTop = top.get();
 
             // NOTE: Competing to enqueue at the
@@ -29,7 +30,7 @@ public class MPSC<E> {
                 // Consumer can just deq here.
                 // Ignore for now, since I have to
                 // implement linked list instead.
-                buffer[localTop] = x;
+                buffer.set(localTop, x);
                 return;
             }
         }
@@ -54,7 +55,7 @@ public class MPSC<E> {
             }
         }
 
-        E localItem = (E) buffer[bottom];
+        E localItem = (E) buffer.get(bottom);
 
         if (localItem != null) {
             bottom += 1;

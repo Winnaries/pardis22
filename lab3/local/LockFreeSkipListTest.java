@@ -67,6 +67,7 @@ public class LockFreeSkipListTest {
 
     public static void main(String[] args) {
         Config config = new Config(args);
+        config.print(); 
 
         LockFreeSkipList<Integer> skiplist = new LockFreeSkipList<Integer>();
         LockFreeSkipListRecordBook<Integer> dbook = new LockFreeSkipListRecordBook<>();

@@ -23,9 +23,9 @@ public class Config {
             probs[2] = Double.parseDouble(args[3]) + probs[1];
             nthreads = Integer.parseInt(args[4]);
             max = Integer.parseInt(args[5]);
-            nitems = Integer.parseInt(args[6]);
-            nops = Integer.parseInt(args[7]);
-            opsPerThread = nitems / nthreads;
+            nitems = max;
+            nops = Integer.parseInt(args[6]);
+            opsPerThread = nops / nthreads;
             assert probs[2] == 1.0; 
 
             rng = new Random(seed); 
@@ -41,14 +41,13 @@ public class Config {
         } catch (Exception e) {
             System.out.println(e);
             System.err.println();
-            System.err.println("CMD: java {impl}.LockFreeSkipListTest {population} {ops_ratio} {nthreads} {max} {nops} {nitems}");
+            System.err.println("CMD: java {impl}.LockFreeSkipListTest {population} {ops_ratio} {nthreads} {max} {nops}");
             System.err.println();
             System.err.println("WHERE:\t {impl}             is one of {original, mutex, local, mpsc}");
             System.err.println("      \t {population}       is one of {uniform, normal}");
             System.err.println("      \t {op_ratio}         is three space-separated double between [0,1] (must sum up to 1.0)");
             System.err.println("      \t {nthreads}         is natural number: 4, 16, 64, etc");
             System.err.println("      \t {max}              is the maximum possible value in the list (minimum is 0)");
-            System.err.println("      \t {nitems}           is total amount of prepopulated item in the list");
             System.err.println("      \t {nops}             is total amount of operation, rounded to multiple of nthreads");
             System.exit(-1);
         }
