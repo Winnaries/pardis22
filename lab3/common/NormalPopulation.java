@@ -1,3 +1,4 @@
+package common; 
 import java.util.Random;
 
 public class NormalPopulation implements Population {

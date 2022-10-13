@@ -1,3 +1,5 @@
+package common; 
+
 import java.util.Random;
 
 public class UniformPopulation implements Population {

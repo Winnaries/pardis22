@@ -1,3 +1,5 @@
+package common; 
+
 public interface Population {
     // Returns number of samples generated
     int getCount();

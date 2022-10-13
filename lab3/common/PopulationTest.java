@@ -1,3 +1,5 @@
+package common;
+
 public class PopulationTest {
     public static void main(String [] args) {
         Population uniPop = new UniformPopulation(123, 0, 100);
