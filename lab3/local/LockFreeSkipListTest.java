@@ -1,50 +1,39 @@
-package local; 
+package local;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import common.NormalPopulation;
-import common.UniformPopulation;
-import common.Population;
+import common.Config;
 
 public class LockFreeSkipListTest {
-
-    static final int MIN = 0;
-    static final int MAX = 1000;
-    static final int LENGTH = 1000;
-
-    static final double[] CUMULATIVE_PROB = { 0.8, 0.9, 1.0 };
 
     static class Task implements Callable<Boolean> {
         int id;
         Integer[] ops;
         Integer[] values;
         LockFreeSkipListRecordBook<Integer> book;
-
-        // global variables, shared across thread
         LockFreeSkipList<Integer> skiplist;
 
-        public Task(int id, LockFreeSkipList<Integer> skiplist, int nops, Random rng, Population population,
-                LockFreeSkipListRecordBook<Integer> book) {
-            ops = new Integer[nops];
-            values = new Integer[nops];
+        public Task(int id, LockFreeSkipList<Integer> skiplist,
+                LockFreeSkipListRecordBook<Integer> book, Config config) {
+            ops = new Integer[config.opsPerThread];
+            values = new Integer[config.opsPerThread];
             int[] stats = new int[3];
             this.skiplist = skiplist;
             this.id = id;
             this.book = book;
 
-            int ndist = CUMULATIVE_PROB.length;
-            outer: for (int i = 0; i < nops; i += 1) {
-                double opsSample = rng.nextDouble();
-                values[i] = population.getSample();
+            int ndist = config.probs.length;
+            outer: for (int i = 0; i < config.opsPerThread; i += 1) {
+                double opsSample = config.rng.nextDouble();
+                values[i] = config.testDist.getSample();
 
                 for (int j = 0; j < ndist - 1; j += 1) {
-                    if (opsSample < CUMULATIVE_PROB[j]) {
+                    if (opsSample < config.probs[j]) {
                         ops[i] = j;
                         stats[j] += 1;
                         continue outer;
@@ -77,27 +66,14 @@ public class LockFreeSkipListTest {
     }
 
     public static void main(String[] args) {
-        boolean isUniform = args[0].equalsIgnoreCase("uniform");
-        int nthreads = Integer.parseInt(args[1]);
-        int nitems = Integer.parseInt(args[2]);
-        int seed = Integer.parseInt(args[3]);
-        int opsPerThread = nitems / nthreads;
+        Config config = new Config(args);
 
-        Random rng = new Random(seed);
         LockFreeSkipList<Integer> skiplist = new LockFreeSkipList<Integer>();
-
-        Population prefill = isUniform
-                ? new UniformPopulation(seed * 2, MIN, MAX)
-                : new NormalPopulation(seed * 2, MIN, MAX, 0f, 1f);
-        Population population = isUniform
-                ? new UniformPopulation(seed * 3, MIN, MAX)
-                : new NormalPopulation(seed * 3, MIN, MAX, 0f, 1f);
-
         LockFreeSkipListRecordBook<Integer> dbook = new LockFreeSkipListRecordBook<>();
 
         int success = 0;
-        for (int i = 0; i < LENGTH; i += 1) {
-            if (skiplist.add(prefill.getSample(), dbook))
+        for (int i = 0; i < config.nitems; i += 1) {
+            if (skiplist.add(config.prepDist.getSample(), dbook))
                 success++;
         }
 
@@ -105,15 +81,15 @@ public class LockFreeSkipListTest {
 
         List<Future<Boolean>> futures = null;
         ArrayList<Task> tasks = new ArrayList<>();
-        ExecutorService pool = Executors.newFixedThreadPool(nthreads);
+        ExecutorService pool = Executors.newFixedThreadPool(config.nthreads);
         ArrayList<LockFreeSkipListRecordBook<Integer>> books = new ArrayList<>();
 
-        for (int i = 0; i < nthreads; i += 1) {
-            LockFreeSkipListRecordBook<Integer> nextBook = new LockFreeSkipListRecordBook<Integer>(); 
-            Task nextTask = new Task(i, skiplist, opsPerThread, rng, population, nextBook); 
+        for (int i = 0; i < config.nthreads; i += 1) {
+            LockFreeSkipListRecordBook<Integer> nextBook = new LockFreeSkipListRecordBook<Integer>();
+            Task nextTask = new Task(i, skiplist, nextBook, config);
             books.add(nextBook);
             tasks.add(nextTask);
-            
+
         }
 
         long start = System.nanoTime();
@@ -128,14 +104,14 @@ public class LockFreeSkipListTest {
         System.out.println();
         System.out.println("Time elapsed: " + (System.nanoTime() - start) / 1000000 + " ms");
 
-        for (int i = 0; i < nthreads; i += 1) {
+        for (int i = 0; i < config.nthreads; i += 1) {
             dbook.records.addAll(books.get(i).records);
         }
 
         dbook.finished();
         System.out.println("Total ops: " + (dbook.records.size()));
 
-        if (LockFreeSkipListValidator.isLinearizable(dbook, MIN, MAX)) {
+        if (LockFreeSkipListValidator.isLinearizable(dbook, config.min, config.max)) {
             System.out.println("The history is sequentially consistent");
         } else {
             System.out.println("The history is NOT sequentially consistent");
