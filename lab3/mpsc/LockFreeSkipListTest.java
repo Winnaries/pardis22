@@ -9,23 +9,25 @@ import java.util.concurrent.Future;
 public class LockFreeSkipListTest {
 
     static final int MIN = 0;
-    static final int MAX = 100;
-    static final int LENGTH = 100;
+    static final int MAX = 1000;
+    static final int LENGTH = 1000;
 
-    static final double[] CUMULATIVE_PROB = { 0.0, 0.5, 1.0 };
+    static final double[] CUMULATIVE_PROB = { 0.8, 0.9, 1.0 };
 
     static class MPSCTask implements Runnable {
-        volatile boolean finished = false; 
-        LockFreeSkipListRecordBook<Integer> book; 
+        volatile boolean finished = false;
+        LockFreeSkipListRecordBook<Integer> book;
 
         public MPSCTask(LockFreeSkipListRecordBook<Integer> book) {
-            this.book = book; 
-            this.finished = false; 
+            this.book = book;
+            this.finished = false;
         }
 
         public void run() {
-            while (!this.finished) book.submit();
-            while (book.submit()) {}
+            while (!this.finished)
+                book.submit();
+            while (book.submit()) {
+            }
         }
     }
 
@@ -83,7 +85,7 @@ public class LockFreeSkipListTest {
 
     public static void main(String[] args) {
         // NOTE: We steal one thread from the total pool
-        // for the logging work through mpsc. 
+        // for the logging work through mpsc.
         boolean isUniform = args[0].equalsIgnoreCase("uniform");
         int nthreads = Integer.parseInt(args[1]) - 1;
         int nitems = Integer.parseInt(args[2]);
@@ -92,7 +94,7 @@ public class LockFreeSkipListTest {
 
         Random rng = new Random(seed);
         LockFreeSkipList<Integer> skiplist = new LockFreeSkipList<Integer>();
-        LockFreeSkipListRecordBook<Integer> book = skiplist.book; 
+        LockFreeSkipListRecordBook<Integer> book = skiplist.book;
 
         // NOTE: Have to vary the seed because otherwise
         // the random number will happens in the same order.
@@ -125,18 +127,18 @@ public class LockFreeSkipListTest {
         long start = System.nanoTime();
 
         try {
-            MPSCTask task = new MPSCTask(book); 
+            MPSCTask task = new MPSCTask(book);
             Future<?> special = pool.submit(task);
             List<Future<Boolean>> futures = pool.invokeAll(tasks);
 
-            // NOTE: Waiting for all the threads to finished. 
+            // NOTE: Waiting for all the threads to finished.
             for (Future<Boolean> f : futures)
                 f.get();
 
-            // NOTE: Signal the MPSC thread that the operation 
-            // has finished and is currently waiting for you. 
+            // NOTE: Signal the MPSC thread that the operation
+            // has finished and is currently waiting for you.
             task.finished = true;
-            special.get(); 
+            special.get();
         } catch (Exception e) {
         }
 
@@ -194,8 +196,8 @@ class LockFreeSkipListRecord<T> {
 }
 
 class LockFreeSkipListRecordBook<T> {
-    private volatile int seq = 0; 
-    private MPSC<LockFreeSkipListRecord<T>> mpsc = new MPSC<>(1000);
+    private volatile int seq = 0;
+    private MPSC<LockFreeSkipListRecord<T>> mpsc = new MPSC<>(10000);
     ArrayList<LockFreeSkipListRecord<T>> records = new ArrayList<LockFreeSkipListRecord<T>>();
 
     public void record(int op, T v, boolean r) {
@@ -210,16 +212,16 @@ class LockFreeSkipListRecordBook<T> {
     }
 
     public boolean submit() {
-        LockFreeSkipListRecord<T> item = mpsc.deq(); 
+        LockFreeSkipListRecord<T> item = mpsc.deq();
 
         if (item != null) {
             System.err.println("");
-            records.add(item); 
-            item.seq = seq++; 
-            return true; 
-        }  
-        
-        return false; 
+            records.add(item);
+            item.seq = seq++;
+            return true;
+        }
+
+        return false;
     }
 
     public void print(T filter) {
@@ -282,7 +284,7 @@ class LockFreeSkipListValidator {
 
         int ghostChains = 0;
         int competingRemoves = 0;
-        int violations = 0; 
+        int violations = 0;
 
         ArrayList<ArrayList<LockFreeSkipListRecord<Integer>>> histories = new ArrayList<>();
 
@@ -341,7 +343,7 @@ class LockFreeSkipListValidator {
                 }
             }
 
-            violations += 1; 
+            violations += 1;
         }
 
         System.out.println();
