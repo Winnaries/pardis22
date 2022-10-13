@@ -40,11 +40,10 @@ public class Config {
 
         } catch (Exception e) {
             System.out.println(e);
-            System.err.println("Error parsing arguments...");
             System.err.println();
-            System.err.println("\tjava {impl}.LockFreeSkipListTest {population} {ops_ratio} {nthreads} {nops} {nitems}");
+            System.err.println("CMD: java {impl}.LockFreeSkipListTest {population} {ops_ratio} {nthreads} {max} {nops} {nitems}");
             System.err.println();
-            System.err.println("where \t {impl}             is one of {original, mutex, local, mpsc}");
+            System.err.println("WHERE:\t {impl}             is one of {original, mutex, local, mpsc}");
             System.err.println("      \t {population}       is one of {uniform, normal}");
             System.err.println("      \t {op_ratio}         is three space-separated double between [0,1] (must sum up to 1.0)");
             System.err.println("      \t {nthreads}         is natural number: 4, 16, 64, etc");
